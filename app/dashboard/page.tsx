@@ -1,30 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { collection, getDocs, doc, updateDoc, getDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
-import { ProcessingRMAs } from "@/components/processing-rmas"
-import { InServiceCentreRMAs } from "@/components/in-service-centre-rmas"
-import { ReadyToDispatchRMAs } from "@/components/ready-to-dispatch-rmas"
-import { DeliveredRMAs } from "@/components/delivered-rmas"
-import { Button } from "@/components/ui/button"
-import Link from "next/link"
-import {
-  PlusCircle,
-  Package2,
-  Wrench,
-  CheckCircle,
-  TruckIcon as TruckDelivery,
-  Search,
-  X,
-  ArrowRight,
-  Loader2,
-} from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { toast } from "@/components/ui/use-toast"
 import {
   Dialog,
   DialogContent,
@@ -33,100 +14,86 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Loader2, Search, X, PlusCircle, Package2, Wrench, CheckCircle, TruckIcon } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
+import Link from "next/link"
 
-// Function to generate consistent colors for service centres
-function getServiceCentreColor(serviceCentre: string) {
+// Import components as default exports
+import ProcessingRMAs from "@/components/processing-rmas"
+import InServiceCentreRMAs from "@/components/in-service-centre-rmas"
+import ReadyToDispatchRMAs from "@/components/ready-to-dispatch-rmas"
+import DeliveredRMAs from "@/components/delivered-rmas"
+
+// Import Firebase
+import { collection, getDocs, doc, getDoc, updateDoc } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+
+// Helper function to get a consistent color for service centre badges
+const getServiceCentreColor = (serviceCentreName) => {
+  // Return a consistent color based on the service centre name
   return "bg-blue-100 text-blue-800 border-blue-300"
 }
 
-export default function DashboardPage() {
+// Helper function to get the next status based on current status
+const getNextStatus = (currentStatus) => {
+  const statusFlow = {
+    processing: "in_service_centre",
+    in_service_centre: "ready",
+    ready: "delivered",
+    delivered: null, // End of flow
+  }
+  return statusFlow[currentStatus] || null
+}
+
+// Helper function to get button text based on current status
+const getButtonText = (currentStatus) => {
+  const buttonText = {
+    processing: "Send to Service Centre",
+    in_service_centre: "Mark as Ready",
+    ready: "Mark as Delivered",
+    delivered: "Delivered", // No action needed
+  }
+  return buttonText[currentStatus] || "Process"
+}
+
+export default function Dashboard() {
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [processingRMA, setProcessingRMA] = useState(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [serviceCentres, setServiceCentres] = useState([])
+  const [selectedServiceCentre, setSelectedServiceCentre] = useState("")
+  const [serviceRemarks, setServiceRemarks] = useState("")
+  const [showServiceCentreDialog, setShowServiceCentreDialog] = useState(false)
   const [stats, setStats] = useState({
-    totalProducts: 0,
     processing: 0,
     inServiceCentre: 0,
     readyToDispatch: 0,
     delivered: 0,
   })
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState<any[]>([])
-  const [isSearching, setIsSearching] = useState(false)
   const [companyName, setCompanyName] = useState("RMA Management Dashboard")
   const [hasSearched, setHasSearched] = useState(false)
-  const [isProcessing, setIsProcessing] = useState<Record<string, boolean>>({})
-  const [serviceCentres, setServiceCentres] = useState<any[]>([])
-  const [isProcessDialogOpen, setIsProcessDialogOpen] = useState(false)
-  const [selectedRma, setSelectedRma] = useState<any>(null)
-  const [selectedServiceCentre, setSelectedServiceCentre] = useState("")
-  const [remarks, setRemarks] = useState("")
 
+  // Fetch service centres and stats on component mount
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchServiceCentres = async () => {
       try {
-        const rmaCollection = collection(db, "rmas")
-        const rmaSnapshot = await getDocs(rmaCollection)
-
-        // Initialize counters
-        let totalProducts = 0
-        let processingProducts = 0
-        let inServiceProducts = 0
-        let readyProducts = 0
-        let deliveredProducts = 0
-
-        // Count products by status
-        rmaSnapshot.docs.forEach((doc) => {
-          const rmaData = doc.data()
-
-          // Handle both new multi-product RMAs and legacy single-product RMAs
-          if (rmaData.products && Array.isArray(rmaData.products)) {
-            // New multi-product format
-            totalProducts += rmaData.products.length
-
-            rmaData.products.forEach((product: any) => {
-              if (product.status === "processing") {
-                processingProducts++
-              } else if (product.status === "in_service_centre") {
-                inServiceProducts++
-              } else if (product.status === "ready") {
-                readyProducts++
-              } else if (product.status === "delivered") {
-                deliveredProducts++
-              }
-            })
-          } else {
-            // Legacy single-product format
-            totalProducts++
-
-            if (rmaData.status === "processing") {
-              processingProducts++
-            } else if (rmaData.status === "in_service_centre") {
-              inServiceProducts++
-            } else if (rmaData.status === "ready") {
-              readyProducts++
-            } else if (rmaData.status === "delivered") {
-              deliveredProducts++
-            }
-          }
-        })
-
-        setStats({
-          totalProducts,
-          processing: processingProducts,
-          inServiceCentre: inServiceProducts,
-          readyToDispatch: readyProducts,
-          delivered: deliveredProducts,
-        })
+        const serviceCentresCollection = collection(db, "serviceCentres")
+        const serviceCentresSnapshot = await getDocs(serviceCentresCollection)
+        const serviceCentresList = serviceCentresSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        setServiceCentres(serviceCentresList)
       } catch (error) {
-        console.error("Error fetching stats:", error)
+        console.error("Error fetching service centres:", error)
       }
     }
 
-    fetchStats()
-  }, [])
-
-  useEffect(() => {
     const fetchCompanyName = async () => {
       try {
         const settingsCollection = collection(db, "settings")
@@ -145,28 +112,67 @@ export default function DashboardPage() {
       }
     }
 
+    fetchServiceCentres()
+    fetchStats()
     fetchCompanyName()
   }, [])
 
-  useEffect(() => {
-    // Fetch service centres
-    const fetchServiceCentres = async () => {
-      try {
-        const serviceCentreCollection = collection(db, "serviceCentres")
-        const snapshot = await getDocs(serviceCentreCollection)
-        const centres = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }))
-        setServiceCentres(centres)
-      } catch (error) {
-        console.error("Error fetching service centres:", error)
-      }
+  // Fetch dashboard stats
+  const fetchStats = async () => {
+    try {
+      const rmaCollection = collection(db, "rmas")
+      const rmaSnapshot = await getDocs(rmaCollection)
+
+      // Initialize counters
+      let processingCount = 0
+      let inServiceCount = 0
+      let readyCount = 0
+      let deliveredCount = 0
+
+      // Count products by status
+      rmaSnapshot.docs.forEach((doc) => {
+        const rmaData = doc.data()
+
+        // Handle both new multi-product RMAs and legacy single-product RMAs
+        if (rmaData.products && Array.isArray(rmaData.products)) {
+          // New multi-product format
+          rmaData.products.forEach((product) => {
+            if (product.status === "processing") {
+              processingCount++
+            } else if (product.status === "in_service_centre") {
+              inServiceCount++
+            } else if (product.status === "ready") {
+              readyCount++
+            } else if (product.status === "delivered") {
+              deliveredCount++
+            }
+          })
+        } else {
+          // Legacy single-product format
+          if (rmaData.status === "processing") {
+            processingCount++
+          } else if (rmaData.status === "in_service_centre") {
+            inServiceCount++
+          } else if (rmaData.status === "ready") {
+            readyCount++
+          } else if (rmaData.status === "delivered") {
+            deliveredCount++
+          }
+        }
+      })
+
+      setStats({
+        processing: processingCount,
+        inServiceCentre: inServiceCount,
+        readyToDispatch: readyCount,
+        delivered: deliveredCount,
+      })
+    } catch (error) {
+      console.error("Error fetching stats:", error)
     }
+  }
 
-    fetchServiceCentres()
-  }, [])
-
+  // Handle search
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
 
@@ -176,7 +182,7 @@ export default function DashboardPage() {
       const rmaCollection = collection(db, "rmas")
       const snapshot = await getDocs(rmaCollection)
 
-      const results: any[] = []
+      const results = []
 
       snapshot.docs.forEach((doc) => {
         const rmaData = doc.data()
@@ -185,7 +191,7 @@ export default function DashboardPage() {
         // Handle both multi-product and legacy RMAs
         if (rmaData.products && Array.isArray(rmaData.products)) {
           // For multi-product RMAs, check each product
-          rmaData.products.forEach((product: any, index: number) => {
+          rmaData.products.forEach((product, index) => {
             const matchesSearch =
               rmaData.contactName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
               rmaData.contactPhone?.includes(searchQuery) ||
@@ -204,7 +210,7 @@ export default function DashboardPage() {
                 modelNumber: product.modelNumber,
                 serialNumber: product.serialNumber,
                 status: product.status,
-                serviceCentre: product.serviceCentre,
+                serviceCentre: product.serviceCentre?.name || product.serviceCentreName,
                 isMultiProduct: true,
               })
             }
@@ -228,7 +234,7 @@ export default function DashboardPage() {
               modelNumber: rmaData.modelNumber,
               serialNumber: rmaData.serialNumber,
               status: rmaData.status,
-              serviceCentre: rmaData.serviceCentre,
+              serviceCentre: rmaData.serviceCentre?.name || rmaData.serviceCentreName,
               isMultiProduct: false,
             })
           }
@@ -238,6 +244,11 @@ export default function DashboardPage() {
       setSearchResults(results)
     } catch (error) {
       console.error("Error searching RMAs:", error)
+      toast({
+        title: "Error",
+        description: "Failed to search RMAs. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsSearching(false)
     }
@@ -249,91 +260,58 @@ export default function DashboardPage() {
     setHasSearched(false)
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status) => {
     switch (status) {
       case "processing":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+          <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-300">
             Material Received
-          </span>
+          </Badge>
         )
       case "in_service_centre":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+          <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-300">
             In Service Centre
-          </span>
+          </Badge>
         )
       case "ready":
-        return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            Ready to Dispatch
-          </span>
-        )
+        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-300">Ready to Dispatch</Badge>
       case "delivered":
-        return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-            Delivered
-          </span>
-        )
+        return <Badge className="bg-green-100 text-green-800 hover:bg-green-200 border-green-300">Delivered</Badge>
       default:
-        return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-            {status}
-          </span>
-        )
+        return <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-200 border-gray-300">{status}</Badge>
     }
   }
 
-  const getNextStatus = (currentStatus: string) => {
-    switch (currentStatus) {
-      case "processing":
-        return "in_service_centre"
-      case "in_service_centre":
-        return "ready"
-      case "ready":
-        return "delivered"
-      default:
-        return currentStatus
-    }
-  }
-
-  const getNextStatusLabel = (currentStatus: string) => {
-    switch (currentStatus) {
-      case "processing":
-        return "Send to Service Centre"
-      case "in_service_centre":
-        return "Mark as Ready"
-      case "ready":
-        return "Mark as Delivered"
-      case "delivered":
-        return "Already Delivered"
-      default:
-        return "Process"
-    }
-  }
-
-  const handleProcessRMA = (rma: any) => {
-    if (rma.status === "processing") {
-      // For processing status, we need to select a service centre
-      setSelectedRma(rma)
-      setIsProcessDialogOpen(true)
-    } else {
-      // For other statuses, directly process to next stage
-      processRMA(rma)
-    }
-  }
-
-  const processRMA = async (rma: any, selectedServiceCentre?: string, remarks?: string) => {
-    const rmaId = rma.id
+  // Handle process RMA
+  const handleProcessRMA = (rma) => {
     const nextStatus = getNextStatus(rma.status)
 
-    if (nextStatus === rma.status) return // No change needed
+    if (!nextStatus) {
+      toast({
+        title: "No further action",
+        description: "This RMA is already at the final status",
+        variant: "default",
+      })
+      return
+    }
 
-    // Set processing state
-    setIsProcessing((prev) => ({ ...prev, [rmaId]: true }))
+    if (nextStatus === "in_service_centre") {
+      // Need to select a service centre first
+      setProcessingRMA(rma)
+      setShowServiceCentreDialog(true)
+    } else {
+      // Can proceed directly to next status
+      processRMAToNextStatus(rma, nextStatus)
+    }
+  }
+
+  // Process RMA to next status
+  const processRMAToNextStatus = async (rma, nextStatus, serviceCentre = null, remarks = null) => {
+    setIsProcessing(true)
 
     try {
-      const rmaRef = doc(db, "rmas", rmaId)
+      const rmaRef = doc(db, "rmas", rma.id)
       const rmaDoc = await getDoc(rmaRef)
 
       if (!rmaDoc.exists()) {
@@ -350,79 +328,98 @@ export default function DashboardPage() {
           updatedProducts[rma.productIndex] = {
             ...updatedProducts[rma.productIndex],
             status: nextStatus,
-            ...(selectedServiceCentre && { serviceCentre: selectedServiceCentre }),
+            ...(serviceCentre && {
+              serviceCentre: { name: serviceCentre },
+              serviceCentreName: serviceCentre,
+            }),
             ...(remarks && { remarks: remarks }),
+            updatedAt: new Date(),
           }
+        }
+
+        // Determine overall RMA status
+        let overallStatus = "processing"
+        const statuses = updatedProducts.map((p) => p.status)
+
+        if (statuses.every((s) => s === "delivered")) {
+          overallStatus = "delivered"
+        } else if (statuses.every((s) => s === "ready" || s === "delivered")) {
+          overallStatus = "ready"
+        } else if (statuses.some((s) => s === "in_service_centre" || s === "ready")) {
+          overallStatus = "in_service_centre"
         }
 
         await updateDoc(rmaRef, {
           products: updatedProducts,
+          status: overallStatus,
+          updatedAt: new Date(),
         })
       } else {
         // Legacy single-product RMA
         await updateDoc(rmaRef, {
           status: nextStatus,
-          ...(selectedServiceCentre && { serviceCentre: selectedServiceCentre }),
+          ...(serviceCentre && {
+            serviceCentre: { name: serviceCentre },
+            serviceCentreName: serviceCentre,
+          }),
           ...(remarks && { remarks: remarks }),
+          updatedAt: new Date(),
         })
       }
+
+      toast({
+        title: "RMA Updated",
+        description: `RMA has been moved to ${nextStatus.replace("_", " ")}`,
+        variant: "default",
+      })
 
       // Update the search results to reflect the change
       setSearchResults((prev) =>
         prev.map((item) => {
           if (
-            item.id === rmaId &&
+            item.id === rma.id &&
             (!rma.isMultiProduct || (item.isMultiProduct && item.productIndex === rma.productIndex))
           ) {
             return {
               ...item,
               status: nextStatus,
-              ...(selectedServiceCentre && { serviceCentre: selectedServiceCentre }),
+              ...(serviceCentre && { serviceCentre }),
             }
           }
           return item
         }),
       )
 
-      // Update stats
-      const newStats = { ...stats }
-
-      // Decrement the count for the previous status
-      if (rma.status === "processing") newStats.processing--
-      else if (rma.status === "in_service_centre") newStats.inServiceCentre--
-      else if (rma.status === "ready") newStats.readyToDispatch--
-
-      // Increment the count for the new status
-      if (nextStatus === "in_service_centre") newStats.inServiceCentre++
-      else if (nextStatus === "ready") newStats.readyToDispatch++
-      else if (nextStatus === "delivered") newStats.delivered++
-
-      setStats(newStats)
-
-      toast({
-        title: "RMA Updated",
-        description: `RMA has been moved to ${nextStatus.replace("_", " ")}`,
-      })
+      // Refresh stats
+      fetchStats()
     } catch (error) {
       console.error("Error processing RMA:", error)
       toast({
         title: "Error",
-        description: "Failed to process RMA",
+        description: "Failed to update RMA. Please try again.",
         variant: "destructive",
       })
     } finally {
-      setIsProcessing((prev) => ({ ...prev, [rmaId]: false }))
-      setIsProcessDialogOpen(false)
-      setSelectedRma(null)
+      setIsProcessing(false)
+      setShowServiceCentreDialog(false)
+      setProcessingRMA(null)
       setSelectedServiceCentre("")
-      setRemarks("")
+      setServiceRemarks("")
     }
   }
 
-  const handleConfirmProcess = () => {
-    if (!selectedRma) return
+  // Handle service centre selection
+  const handleServiceCentreSubmit = () => {
+    if (!selectedServiceCentre) {
+      toast({
+        title: "Service centre required",
+        description: "Please select a service centre",
+        variant: "destructive",
+      })
+      return
+    }
 
-    processRMA(selectedRma, selectedServiceCentre, remarks)
+    processRMAToNextStatus(processingRMA, "in_service_centre", selectedServiceCentre, serviceRemarks)
   }
 
   return (
@@ -509,9 +506,7 @@ export default function DashboardPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{result.serialNumber}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {result.serviceCentre ? (
-                          <Badge className={getServiceCentreColor(result.serviceCentre)} variant="outline">
-                            {result.serviceCentre}
-                          </Badge>
+                          <Badge className={getServiceCentreColor(result.serviceCentre)}>{result.serviceCentre}</Badge>
                         ) : (
                           "-"
                         )}
@@ -530,19 +525,16 @@ export default function DashboardPage() {
                             variant="default"
                             size="sm"
                             onClick={() => handleProcessRMA(result)}
-                            disabled={isProcessing[result.id]}
+                            disabled={isProcessing}
                             className="gap-1"
                           >
-                            {isProcessing[result.id] ? (
+                            {isProcessing && processingRMA?.id === result.id ? (
                               <>
                                 <Loader2 className="h-3 w-3 animate-spin" />
                                 Processing...
                               </>
                             ) : (
-                              <>
-                                {getNextStatusLabel(result.status)}
-                                <ArrowRight className="h-3 w-3 ml-1" />
-                              </>
+                              <>{getButtonText(result.status)}</>
                             )}
                           </Button>
                         )}
@@ -574,7 +566,9 @@ export default function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalProducts}</div>
+            <div className="text-2xl font-bold">
+              {stats.processing + stats.inServiceCentre + stats.readyToDispatch + stats.delivered}
+            </div>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 shadow-sm">
@@ -613,7 +607,7 @@ export default function DashboardPage() {
         <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TruckDelivery className="h-4 w-4 text-green-500" />
+              <TruckIcon className="h-4 w-4 text-green-500" />
               Delivered
             </CardTitle>
           </CardHeader>
@@ -650,7 +644,7 @@ export default function DashboardPage() {
             value="delivered"
             className="data-[state=active]:bg-green-100 data-[state=active]:text-green-900 data-[state=active]:shadow py-3"
           >
-            <TruckDelivery className="h-4 w-4 mr-2" />
+            <TruckIcon className="h-4 w-4 mr-2" />
             Delivered
           </TabsTrigger>
         </TabsList>
@@ -664,7 +658,7 @@ export default function DashboardPage() {
               <CardDescription>Products that have been received. Send to service centre when ready.</CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <ProcessingRMAs />
+              <ProcessingRMAs onStatusChange={fetchStats} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -680,7 +674,7 @@ export default function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <InServiceCentreRMAs />
+              <InServiceCentreRMAs onStatusChange={fetchStats} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -696,7 +690,7 @@ export default function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <ReadyToDispatchRMAs />
+              <ReadyToDispatchRMAs onStatusChange={fetchStats} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -704,7 +698,7 @@ export default function DashboardPage() {
           <Card className="border-green-200">
             <CardHeader className="bg-green-50 rounded-t-lg">
               <CardTitle className="text-green-800 flex items-center gap-2">
-                <TruckDelivery className="h-5 w-5" />
+                <TruckIcon className="h-5 w-5" />
                 Delivered Products
               </CardTitle>
               <CardDescription>Products that have been delivered to customers.</CardDescription>
@@ -717,7 +711,7 @@ export default function DashboardPage() {
       </Tabs>
 
       {/* Service Centre Selection Dialog */}
-      <Dialog open={isProcessDialogOpen} onOpenChange={setIsProcessDialogOpen}>
+      <Dialog open={showServiceCentreDialog} onOpenChange={setShowServiceCentreDialog}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Send to Service Centre</DialogTitle>
@@ -749,16 +743,16 @@ export default function DashboardPage() {
                 id="remarks"
                 placeholder="Add any notes or instructions for the service centre"
                 className="col-span-3"
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
+                value={serviceRemarks}
+                onChange={(e) => setServiceRemarks(e.target.value)}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsProcessDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setShowServiceCentreDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleConfirmProcess} disabled={!selectedServiceCentre}>
+            <Button onClick={handleServiceCentreSubmit} disabled={!selectedServiceCentre}>
               Process
             </Button>
           </DialogFooter>
