@@ -1,24 +1,25 @@
 import { initializeApp } from "firebase/app"
-import { getFirestore } from "firebase/firestore"
 import { getAuth } from "firebase/auth"
-import { getStorage } from "firebase/storage"
+import { getFirestore } from "firebase/firestore"
 
-// Your web app's Firebase configuration
+// Replace this with your actual Firebase config from the Firebase Console
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAAxx059pE6R1MWJAih16hZhSmpMo-7-r4",
+  authDomain: "rma-website-5bc61.firebaseapp.com",
+  projectId: "rma-website-5bc61",
+  storageBucket: "rma-website-5bc61.firebasestorage.app",
+  messagingSenderId: "157288741606",
+  appId: "1:157288741606:web:34d4d25d806bcbe5fc1927",
+  measurementId: "G-5TKJFHNBYQ",
 }
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig)
 
-// Export the db as a named export
-export const db = getFirestore(app)
+// Initialize Firebase Authentication and get a reference to the service
 export const auth = getAuth(app)
-export const storage = getStorage(app)
+
+// Initialize Cloud Firestore and get a reference to the service
+export const db = getFirestore(app)
 
 export default app

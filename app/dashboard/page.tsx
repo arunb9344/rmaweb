@@ -1,99 +1,98 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Search, X, PlusCircle, Package2, Wrench, CheckCircle, TruckIcon } from "lucide-react"
-import { toast } from "@/components/ui/use-toast"
-import Link from "next/link"
-
-// Import components as default exports
-import ProcessingRMAs from "@/components/processing-rmas"
-import InServiceCentreRMAs from "@/components/in-service-centre-rmas"
-import ReadyToDispatchRMAs from "@/components/ready-to-dispatch-rmas"
-import DeliveredRMAs from "@/components/delivered-rmas"
-
-// Import Firebase
-import { collection, getDocs, doc, getDoc, updateDoc } from "firebase/firestore"
+import { collection, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { ProcessingRMAs } from "@/components/processing-rmas"
+import { InServiceCentreRMAs } from "@/components/in-service-centre-rmas"
+import { ReadyToDispatchRMAs } from "@/components/ready-to-dispatch-rmas"
+import { DeliveredRMAs } from "@/components/delivered-rmas"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { PlusCircle, Package2, Wrench, CheckCircle, TruckIcon as TruckDelivery, Search, X } from "lucide-react"
+import { Input } from "@/components/ui/input"
 
-// Helper function to get a consistent color for service centre badges
-const getServiceCentreColor = (serviceCentreName) => {
-  // Return a consistent color based on the service centre name
-  return "bg-blue-100 text-blue-800 border-blue-300"
-}
-
-// Helper function to get the next status based on current status
-const getNextStatus = (currentStatus) => {
-  const statusFlow = {
-    processing: "in_service_centre",
-    in_service_centre: "ready",
-    ready: "delivered",
-    delivered: null, // End of flow
-  }
-  return statusFlow[currentStatus] || null
-}
-
-// Helper function to get button text based on current status
-const getButtonText = (currentStatus) => {
-  const buttonText = {
-    processing: "Send to Service Centre",
-    in_service_centre: "Mark as Ready",
-    ready: "Mark as Delivered",
-    delivered: "Delivered", // No action needed
-  }
-  return buttonText[currentStatus] || "Process"
-}
-
-export default function Dashboard() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [processingRMA, setProcessingRMA] = useState(null)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [serviceCentres, setServiceCentres] = useState([])
-  const [selectedServiceCentre, setSelectedServiceCentre] = useState("")
-  const [serviceRemarks, setServiceRemarks] = useState("")
-  const [showServiceCentreDialog, setShowServiceCentreDialog] = useState(false)
+export default function DashboardPage() {
   const [stats, setStats] = useState({
+    totalProducts: 0,
     processing: 0,
     inServiceCentre: 0,
     readyToDispatch: 0,
     delivered: 0,
   })
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [isSearching, setIsSearching] = useState(false)
   const [companyName, setCompanyName] = useState("RMA Management Dashboard")
   const [hasSearched, setHasSearched] = useState(false)
 
-  // Fetch service centres and stats on component mount
   useEffect(() => {
-    const fetchServiceCentres = async () => {
+    const fetchStats = async () => {
       try {
-        const serviceCentresCollection = collection(db, "serviceCentres")
-        const serviceCentresSnapshot = await getDocs(serviceCentresCollection)
-        const serviceCentresList = serviceCentresSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }))
-        setServiceCentres(serviceCentresList)
+        const rmaCollection = collection(db, "rmas")
+        const rmaSnapshot = await getDocs(rmaCollection)
+
+        // Initialize counters
+        let totalProducts = 0
+        let processingProducts = 0
+        let inServiceProducts = 0
+        let readyProducts = 0
+        let deliveredProducts = 0
+
+        // Count products by status
+        rmaSnapshot.docs.forEach((doc) => {
+          const rmaData = doc.data()
+
+          // Handle both new multi-product RMAs and legacy single-product RMAs
+          if (rmaData.products && Array.isArray(rmaData.products)) {
+            // New multi-product format
+            totalProducts += rmaData.products.length
+
+            rmaData.products.forEach((product: any) => {
+              if (product.status === "processing") {
+                processingProducts++
+              } else if (product.status === "in_service_centre") {
+                inServiceProducts++
+              } else if (product.status === "ready") {
+                readyProducts++
+              } else if (product.status === "delivered") {
+                deliveredProducts++
+              }
+            })
+          } else {
+            // Legacy single-product format
+            totalProducts++
+
+            if (rmaData.status === "processing") {
+              processingProducts++
+            } else if (rmaData.status === "in_service_centre") {
+              inServiceProducts++
+            } else if (rmaData.status === "ready") {
+              readyProducts++
+            } else if (rmaData.status === "delivered") {
+              deliveredProducts++
+            }
+          }
+        })
+
+        setStats({
+          totalProducts,
+          processing: processingProducts,
+          inServiceCentre: inServiceProducts,
+          readyToDispatch: readyProducts,
+          delivered: deliveredProducts,
+        })
       } catch (error) {
-        console.error("Error fetching service centres:", error)
+        console.error("Error fetching stats:", error)
       }
     }
 
+    fetchStats()
+  }, [])
+
+  useEffect(() => {
     const fetchCompanyName = async () => {
       try {
         const settingsCollection = collection(db, "settings")
@@ -112,67 +111,9 @@ export default function Dashboard() {
       }
     }
 
-    fetchServiceCentres()
-    fetchStats()
     fetchCompanyName()
   }, [])
 
-  // Fetch dashboard stats
-  const fetchStats = async () => {
-    try {
-      const rmaCollection = collection(db, "rmas")
-      const rmaSnapshot = await getDocs(rmaCollection)
-
-      // Initialize counters
-      let processingCount = 0
-      let inServiceCount = 0
-      let readyCount = 0
-      let deliveredCount = 0
-
-      // Count products by status
-      rmaSnapshot.docs.forEach((doc) => {
-        const rmaData = doc.data()
-
-        // Handle both new multi-product RMAs and legacy single-product RMAs
-        if (rmaData.products && Array.isArray(rmaData.products)) {
-          // New multi-product format
-          rmaData.products.forEach((product) => {
-            if (product.status === "processing") {
-              processingCount++
-            } else if (product.status === "in_service_centre") {
-              inServiceCount++
-            } else if (product.status === "ready") {
-              readyCount++
-            } else if (product.status === "delivered") {
-              deliveredCount++
-            }
-          })
-        } else {
-          // Legacy single-product format
-          if (rmaData.status === "processing") {
-            processingCount++
-          } else if (rmaData.status === "in_service_centre") {
-            inServiceCount++
-          } else if (rmaData.status === "ready") {
-            readyCount++
-          } else if (rmaData.status === "delivered") {
-            deliveredCount++
-          }
-        }
-      })
-
-      setStats({
-        processing: processingCount,
-        inServiceCentre: inServiceCount,
-        readyToDispatch: readyCount,
-        delivered: deliveredCount,
-      })
-    } catch (error) {
-      console.error("Error fetching stats:", error)
-    }
-  }
-
-  // Handle search
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
 
@@ -182,7 +123,7 @@ export default function Dashboard() {
       const rmaCollection = collection(db, "rmas")
       const snapshot = await getDocs(rmaCollection)
 
-      const results = []
+      const results: any[] = []
 
       snapshot.docs.forEach((doc) => {
         const rmaData = doc.data()
@@ -191,7 +132,7 @@ export default function Dashboard() {
         // Handle both multi-product and legacy RMAs
         if (rmaData.products && Array.isArray(rmaData.products)) {
           // For multi-product RMAs, check each product
-          rmaData.products.forEach((product, index) => {
+          rmaData.products.forEach((product: any, index: number) => {
             const matchesSearch =
               rmaData.contactName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
               rmaData.contactPhone?.includes(searchQuery) ||
@@ -210,7 +151,6 @@ export default function Dashboard() {
                 modelNumber: product.modelNumber,
                 serialNumber: product.serialNumber,
                 status: product.status,
-                serviceCentre: product.serviceCentre?.name || product.serviceCentreName,
                 isMultiProduct: true,
               })
             }
@@ -234,7 +174,6 @@ export default function Dashboard() {
               modelNumber: rmaData.modelNumber,
               serialNumber: rmaData.serialNumber,
               status: rmaData.status,
-              serviceCentre: rmaData.serviceCentre?.name || rmaData.serviceCentreName,
               isMultiProduct: false,
             })
           }
@@ -244,11 +183,6 @@ export default function Dashboard() {
       setSearchResults(results)
     } catch (error) {
       console.error("Error searching RMAs:", error)
-      toast({
-        title: "Error",
-        description: "Failed to search RMAs. Please try again.",
-        variant: "destructive",
-      })
     } finally {
       setIsSearching(false)
     }
@@ -260,166 +194,39 @@ export default function Dashboard() {
     setHasSearched(false)
   }
 
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
       case "processing":
         return (
-          <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-300">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
             Material Received
-          </Badge>
+          </span>
         )
       case "in_service_centre":
         return (
-          <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-300">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
             In Service Centre
-          </Badge>
+          </span>
         )
       case "ready":
-        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-300">Ready to Dispatch</Badge>
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            Ready to Dispatch
+          </span>
+        )
       case "delivered":
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-200 border-green-300">Delivered</Badge>
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            Delivered
+          </span>
+        )
       default:
-        return <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-200 border-gray-300">{status}</Badge>
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+            {status}
+          </span>
+        )
     }
-  }
-
-  // Handle process RMA
-  const handleProcessRMA = (rma) => {
-    const nextStatus = getNextStatus(rma.status)
-
-    if (!nextStatus) {
-      toast({
-        title: "No further action",
-        description: "This RMA is already at the final status",
-        variant: "default",
-      })
-      return
-    }
-
-    if (nextStatus === "in_service_centre") {
-      // Need to select a service centre first
-      setProcessingRMA(rma)
-      setShowServiceCentreDialog(true)
-    } else {
-      // Can proceed directly to next status
-      processRMAToNextStatus(rma, nextStatus)
-    }
-  }
-
-  // Process RMA to next status
-  const processRMAToNextStatus = async (rma, nextStatus, serviceCentre = null, remarks = null) => {
-    setIsProcessing(true)
-
-    try {
-      const rmaRef = doc(db, "rmas", rma.id)
-      const rmaDoc = await getDoc(rmaRef)
-
-      if (!rmaDoc.exists()) {
-        throw new Error("RMA not found")
-      }
-
-      const rmaData = rmaDoc.data()
-
-      // Update the RMA based on whether it's multi-product or legacy
-      if (rma.isMultiProduct && rmaData.products && Array.isArray(rmaData.products)) {
-        // Multi-product RMA
-        const updatedProducts = [...rmaData.products]
-        if (updatedProducts[rma.productIndex]) {
-          updatedProducts[rma.productIndex] = {
-            ...updatedProducts[rma.productIndex],
-            status: nextStatus,
-            ...(serviceCentre && {
-              serviceCentre: { name: serviceCentre },
-              serviceCentreName: serviceCentre,
-            }),
-            ...(remarks && { remarks: remarks }),
-            updatedAt: new Date(),
-          }
-        }
-
-        // Determine overall RMA status
-        let overallStatus = "processing"
-        const statuses = updatedProducts.map((p) => p.status)
-
-        if (statuses.every((s) => s === "delivered")) {
-          overallStatus = "delivered"
-        } else if (statuses.every((s) => s === "ready" || s === "delivered")) {
-          overallStatus = "ready"
-        } else if (statuses.some((s) => s === "in_service_centre" || s === "ready")) {
-          overallStatus = "in_service_centre"
-        }
-
-        await updateDoc(rmaRef, {
-          products: updatedProducts,
-          status: overallStatus,
-          updatedAt: new Date(),
-        })
-      } else {
-        // Legacy single-product RMA
-        await updateDoc(rmaRef, {
-          status: nextStatus,
-          ...(serviceCentre && {
-            serviceCentre: { name: serviceCentre },
-            serviceCentreName: serviceCentre,
-          }),
-          ...(remarks && { remarks: remarks }),
-          updatedAt: new Date(),
-        })
-      }
-
-      toast({
-        title: "RMA Updated",
-        description: `RMA has been moved to ${nextStatus.replace("_", " ")}`,
-        variant: "default",
-      })
-
-      // Update the search results to reflect the change
-      setSearchResults((prev) =>
-        prev.map((item) => {
-          if (
-            item.id === rma.id &&
-            (!rma.isMultiProduct || (item.isMultiProduct && item.productIndex === rma.productIndex))
-          ) {
-            return {
-              ...item,
-              status: nextStatus,
-              ...(serviceCentre && { serviceCentre }),
-            }
-          }
-          return item
-        }),
-      )
-
-      // Refresh stats
-      fetchStats()
-    } catch (error) {
-      console.error("Error processing RMA:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update RMA. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsProcessing(false)
-      setShowServiceCentreDialog(false)
-      setProcessingRMA(null)
-      setSelectedServiceCentre("")
-      setServiceRemarks("")
-    }
-  }
-
-  // Handle service centre selection
-  const handleServiceCentreSubmit = () => {
-    if (!selectedServiceCentre) {
-      toast({
-        title: "Service centre required",
-        description: "Please select a service centre",
-        variant: "destructive",
-      })
-      return
-    }
-
-    processRMAToNextStatus(processingRMA, "in_service_centre", selectedServiceCentre, serviceRemarks)
   }
 
   return (
@@ -483,13 +290,10 @@ export default function Dashboard() {
                       Serial Number
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Service Centre
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
+                      Action
                     </th>
                   </tr>
                 </thead>
@@ -505,39 +309,14 @@ export default function Dashboard() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{`${result.brand} ${result.modelNumber}`}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{result.serialNumber}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.serviceCentre ? (
-                          <Badge className={getServiceCentreColor(result.serviceCentre)}>{result.serviceCentre}</Badge>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {getStatusBadge(result.status)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <Link href={`/dashboard/view-rma/${result.id}`}>
                           <Button variant="outline" size="sm">
                             View
                           </Button>
                         </Link>
-                        {result.status !== "delivered" && (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => handleProcessRMA(result)}
-                            disabled={isProcessing}
-                            className="gap-1"
-                          >
-                            {isProcessing && processingRMA?.id === result.id ? (
-                              <>
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Processing...
-                              </>
-                            ) : (
-                              <>{getButtonText(result.status)}</>
-                            )}
-                          </Button>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -566,9 +345,7 @@ export default function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {stats.processing + stats.inServiceCentre + stats.readyToDispatch + stats.delivered}
-            </div>
+            <div className="text-2xl font-bold">{stats.totalProducts}</div>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 shadow-sm">
@@ -607,7 +384,7 @@ export default function Dashboard() {
         <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TruckIcon className="h-4 w-4 text-green-500" />
+              <TruckDelivery className="h-4 w-4 text-green-500" />
               Delivered
             </CardTitle>
           </CardHeader>
@@ -644,7 +421,7 @@ export default function Dashboard() {
             value="delivered"
             className="data-[state=active]:bg-green-100 data-[state=active]:text-green-900 data-[state=active]:shadow py-3"
           >
-            <TruckIcon className="h-4 w-4 mr-2" />
+            <TruckDelivery className="h-4 w-4 mr-2" />
             Delivered
           </TabsTrigger>
         </TabsList>
@@ -658,7 +435,7 @@ export default function Dashboard() {
               <CardDescription>Products that have been received. Send to service centre when ready.</CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <ProcessingRMAs onStatusChange={fetchStats} />
+              <ProcessingRMAs />
             </CardContent>
           </Card>
         </TabsContent>
@@ -674,7 +451,7 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <InServiceCentreRMAs onStatusChange={fetchStats} />
+              <InServiceCentreRMAs />
             </CardContent>
           </Card>
         </TabsContent>
@@ -690,7 +467,7 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <ReadyToDispatchRMAs onStatusChange={fetchStats} />
+              <ReadyToDispatchRMAs />
             </CardContent>
           </Card>
         </TabsContent>
@@ -698,7 +475,7 @@ export default function Dashboard() {
           <Card className="border-green-200">
             <CardHeader className="bg-green-50 rounded-t-lg">
               <CardTitle className="text-green-800 flex items-center gap-2">
-                <TruckIcon className="h-5 w-5" />
+                <TruckDelivery className="h-5 w-5" />
                 Delivered Products
               </CardTitle>
               <CardDescription>Products that have been delivered to customers.</CardDescription>
@@ -709,55 +486,6 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
       </Tabs>
-
-      {/* Service Centre Selection Dialog */}
-      <Dialog open={showServiceCentreDialog} onOpenChange={setShowServiceCentreDialog}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Send to Service Centre</DialogTitle>
-            <DialogDescription>Select a service centre to process this RMA</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="service-centre" className="text-right">
-                Service Centre
-              </Label>
-              <Select value={selectedServiceCentre} onValueChange={setSelectedServiceCentre}>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select a service centre" />
-                </SelectTrigger>
-                <SelectContent>
-                  {serviceCentres.map((centre) => (
-                    <SelectItem key={centre.id} value={centre.name}>
-                      {centre.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="remarks" className="text-right">
-                Remarks
-              </Label>
-              <Textarea
-                id="remarks"
-                placeholder="Add any notes or instructions for the service centre"
-                className="col-span-3"
-                value={serviceRemarks}
-                onChange={(e) => setServiceRemarks(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowServiceCentreDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleServiceCentreSubmit} disabled={!selectedServiceCentre}>
-              Process
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
