@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { collection, getDocs, doc, getDoc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore"
+import { collection, getDocs, doc, getDoc, updateDoc, arrayUnion, Timestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { ProcessingRMAs } from "@/components/processing-rmas"
 import { InServiceCentreRMAs } from "@/components/in-service-centre-rmas"
@@ -26,6 +26,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { sendRMAReadyEmail, sendRMADeliveredEmail } from "@/lib/email"
 
 // Helper function to get a consistent color for service centre badges
 const getServiceCentreColor = (serviceCentreName) => {
@@ -76,6 +77,10 @@ export default function DashboardPage() {
   const [selectedServiceCentre, setSelectedServiceCentre] = useState("")
   const [serviceRemarks, setServiceRemarks] = useState("")
   const [showServiceCentreDialog, setShowServiceCentreDialog] = useState(false)
+  const [requireOtp, setRequireOtp] = useState(true)
+  const [otpInput, setOtpInput] = useState("")
+  const [otpError, setOtpError] = useState("")
+  const [showOtpDialog, setShowOtpDialog] = useState(false)
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -154,6 +159,11 @@ export default function DashboardPage() {
           if (settingsData && settingsData.companyInfo && settingsData.companyInfo.name) {
             setCompanyName(`${settingsData.companyInfo.name} - RMA Management`)
           }
+
+          // Check if OTP is required
+          if (settingsData.hasOwnProperty("requireOtp")) {
+            setRequireOtp(settingsData.requireOtp)
+          }
         }
       } catch (error) {
         console.error("Error fetching company name:", error)
@@ -211,12 +221,14 @@ export default function DashboardPage() {
                 id: rmaId,
                 productIndex: index,
                 contactName: rmaData.contactName,
+                contactEmail: rmaData.contactEmail,
                 contactPhone: rmaData.contactPhone,
                 brand: product.brand,
                 modelNumber: product.modelNumber,
                 serialNumber: product.serialNumber,
                 status: product.status,
                 serviceCentre: product.serviceCentre?.name || product.serviceCentreName,
+                otp: product.otp,
                 isMultiProduct: true,
               })
             }
@@ -235,12 +247,14 @@ export default function DashboardPage() {
             results.push({
               id: rmaId,
               contactName: rmaData.contactName,
+              contactEmail: rmaData.contactEmail,
               contactPhone: rmaData.contactPhone,
               brand: rmaData.brand,
               modelNumber: rmaData.modelNumber,
               serialNumber: rmaData.serialNumber,
               status: rmaData.status,
               serviceCentre: rmaData.serviceCentre?.name || rmaData.serviceCentreName,
+              otp: rmaData.otp,
               isMultiProduct: false,
             })
           }
@@ -306,6 +320,12 @@ export default function DashboardPage() {
       // Need to select a service centre first
       setProcessingRMA(rma)
       setShowServiceCentreDialog(true)
+    } else if (nextStatus === "delivered" && requireOtp) {
+      // Need to enter OTP first
+      setProcessingRMA(rma)
+      setOtpInput("")
+      setOtpError("")
+      setShowOtpDialog(true)
     } else {
       // Can proceed directly to next status
       processRMAToNextStatus(rma, nextStatus)
@@ -331,16 +351,37 @@ export default function DashboardPage() {
         // Multi-product RMA
         const updatedProducts = [...rmaData.products]
         if (updatedProducts[rma.productIndex]) {
-          updatedProducts[rma.productIndex] = {
+          const updatedProduct = {
             ...updatedProducts[rma.productIndex],
             status: nextStatus,
-            ...(serviceCentre && {
-              serviceCentre: { name: serviceCentre },
-              serviceCentreName: serviceCentre,
-            }),
-            ...(remarks && { remarks: remarks }),
             updatedAt: new Date(),
           }
+
+          // Add service centre info if provided
+          if (serviceCentre) {
+            updatedProduct.serviceCentre = { name: serviceCentre }
+            updatedProduct.serviceCentreName = serviceCentre
+          }
+
+          // Add remarks if provided
+          if (remarks) {
+            updatedProduct.remarks = remarks
+          }
+
+          // Generate OTP if moving to ready status
+          if (nextStatus === "ready") {
+            const otp = Math.floor(100000 + Math.random() * 900000).toString()
+            updatedProduct.otp = otp
+            updatedProduct.isReady = true
+          }
+
+          // Add delivered timestamp if moving to delivered status
+          if (nextStatus === "delivered") {
+            updatedProduct.deliveredAt = new Date()
+            updatedProduct.isDelivered = true
+          }
+
+          updatedProducts[rma.productIndex] = updatedProduct
         }
 
         // Determine overall RMA status
@@ -358,30 +399,107 @@ export default function DashboardPage() {
         await updateDoc(rmaRef, {
           products: updatedProducts,
           status: overallStatus,
-          updatedAt: serverTimestamp(),
+          updatedAt: Timestamp.now(),
           statusHistory: arrayUnion({
             status: nextStatus,
-            timestamp: serverTimestamp(),
+            timestamp: Timestamp.now(),
             remarks: remarks || "",
             productIndex: rma.productIndex,
           }),
         })
+
+        // Send email notifications
+        if (nextStatus === "ready") {
+          // Send ready notification with OTP
+          await sendRMAReadyEmail({
+            to: rma.contactEmail,
+            name: rma.contactName,
+            rmaId: rma.id,
+            productDetails: `${rma.brand} ${rma.modelNumber}`,
+            otp: updatedProducts[rma.productIndex].otp,
+            allFields: {
+              ...rmaData,
+              products: updatedProducts,
+            },
+          })
+        } else if (nextStatus === "delivered") {
+          // Send delivered notification
+          await sendRMADeliveredEmail({
+            to: rma.contactEmail,
+            name: rma.contactName,
+            rmaId: rma.id,
+            productDetails: `${rma.brand} ${rma.modelNumber}`,
+            allFields: {
+              ...rmaData,
+              products: updatedProducts,
+            },
+          })
+        }
       } else {
         // Legacy single-product RMA
-        await updateDoc(rmaRef, {
+        const updateData: any = {
           status: nextStatus,
-          ...(serviceCentre && {
-            serviceCentre: { name: serviceCentre },
-            serviceCentreName: serviceCentre,
-          }),
-          ...(remarks && { remarks: remarks }),
-          updatedAt: serverTimestamp(),
+          updatedAt: Timestamp.now(),
           statusHistory: arrayUnion({
             status: nextStatus,
-            timestamp: serverTimestamp(),
+            timestamp: Timestamp.now(),
             remarks: remarks || "",
           }),
-        })
+        }
+
+        // Add service centre info if provided
+        if (serviceCentre) {
+          updateData.serviceCentre = { name: serviceCentre }
+          updateData.serviceCentreName = serviceCentre
+        }
+
+        // Add remarks if provided
+        if (remarks) {
+          updateData.remarks = remarks
+        }
+
+        // Generate OTP if moving to ready status
+        if (nextStatus === "ready") {
+          const otp = Math.floor(100000 + Math.random() * 900000).toString()
+          updateData.otp = otp
+          updateData.isReady = true
+        }
+
+        // Add delivered timestamp if moving to delivered status
+        if (nextStatus === "delivered") {
+          updateData.deliveredAt = Timestamp.now()
+          updateData.isDelivered = true
+        }
+
+        await updateDoc(rmaRef, updateData)
+
+        // Send email notifications
+        if (nextStatus === "ready") {
+          // Send ready notification with OTP
+          await sendRMAReadyEmail({
+            to: rma.contactEmail,
+            name: rma.contactName,
+            rmaId: rma.id,
+            productDetails: `${rma.brand} ${rma.modelNumber}`,
+            otp: updateData.otp,
+            allFields: {
+              ...rmaData,
+              ...updateData,
+            },
+          })
+        } else if (nextStatus === "delivered") {
+          // Send delivered notification
+          await sendRMADeliveredEmail({
+            to: rma.contactEmail,
+            name: rma.contactName,
+            rmaId: rma.id,
+            productDetails: `${rma.brand} ${rma.modelNumber}`,
+            allFields: {
+              ...rmaData,
+              ...updateData,
+            },
+          })
+        }
       }
 
       toast({
@@ -419,9 +537,11 @@ export default function DashboardPage() {
     } finally {
       setIsProcessing(false)
       setShowServiceCentreDialog(false)
+      setShowOtpDialog(false)
       setProcessingRMA(null)
       setSelectedServiceCentre("")
       setServiceRemarks("")
+      setOtpInput("")
     }
   }
 
@@ -437,6 +557,21 @@ export default function DashboardPage() {
     }
 
     processRMAToNextStatus(processingRMA, "in_service_centre", selectedServiceCentre, serviceRemarks)
+  }
+
+  // Handle OTP verification
+  const handleOtpSubmit = () => {
+    if (!otpInput) {
+      setOtpError("OTP is required")
+      return
+    }
+
+    if (otpInput !== processingRMA.otp) {
+      setOtpError("Incorrect OTP")
+      return
+    }
+
+    processRMAToNextStatus(processingRMA, "delivered")
   }
 
   // Fetch stats function for refreshing after updates
@@ -603,7 +738,7 @@ export default function DashboardPage() {
                             variant="default"
                             size="sm"
                             onClick={() => handleProcessRMA(result)}
-                            disabled={isProcessing}
+                            disabled={isProcessing && processingRMA?.id === result.id}
                             className="gap-1"
                           >
                             {isProcessing && processingRMA?.id === result.id ? (
@@ -831,6 +966,40 @@ export default function DashboardPage() {
             <Button onClick={handleServiceCentreSubmit} disabled={!selectedServiceCentre}>
               Process
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* OTP Verification Dialog */}
+      <Dialog open={showOtpDialog} onOpenChange={setShowOtpDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Verify OTP</DialogTitle>
+            <DialogDescription>Enter the OTP sent to the customer to mark this RMA as delivered</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="otp" className="text-right">
+                OTP
+              </Label>
+              <Input
+                id="otp"
+                placeholder="Enter OTP"
+                className={`col-span-3 ${otpError ? "border-red-500" : ""}`}
+                value={otpInput}
+                onChange={(e) => {
+                  setOtpInput(e.target.value)
+                  if (otpError) setOtpError("")
+                }}
+              />
+              {otpError && <p className="col-span-3 col-start-2 text-xs text-red-500">{otpError}</p>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowOtpDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleOtpSubmit}>Verify & Mark as Delivered</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
