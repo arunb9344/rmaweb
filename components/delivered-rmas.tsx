@@ -1,15 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import { collection, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-import { Search, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { RefreshCw } from "lucide-react"
 import { formatDate } from "@/lib/utils"
+import { RMASearchBar } from "@/components/rma-search-bar"
+import { Loader2 } from "lucide-react" // Import Loader2 here
 
 interface Product {
   id: string
@@ -29,6 +30,7 @@ interface RMA {
   contactName: string
   contactEmail: string
   contactPhone: string
+  contactCompany: string
   products: Product[]
   createdAt: any
   deliveredAt: any
@@ -39,77 +41,89 @@ export function DeliveredRMAs() {
   const [filteredRmas, setFilteredRmas] = useState<RMA[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [flattenedProducts, setFlattenedProducts] = useState<any[]>([])
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  useEffect(() => {
-    const fetchRMAs = async () => {
-      try {
-        // Query RMAs that might have delivered products
-        const rmaCollection = collection(db, "rmas")
-        const rmaSnapshot = await getDocs(rmaCollection)
+  const fetchRMAs = async () => {
+    setIsRefreshing(true)
+    try {
+      // Query RMAs that might have delivered products
+      const rmaCollection = collection(db, "rmas")
+      const rmaSnapshot = await getDocs(rmaCollection)
 
-        const rmaList = rmaSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as RMA[]
+      const rmaList = rmaSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as RMA[]
 
-        // Filter RMAs that have at least one delivered product
-        const rmasWithDeliveredProducts = rmaList.filter(
-          (rma) =>
-            rma.products &&
-            Array.isArray(rma.products) &&
-            rma.products.some((product) => product.status === "delivered"),
-        )
+      // Filter RMAs that have at least one delivered product
+      const rmasWithDeliveredProducts = rmaList.filter(
+        (rma) =>
+          rma.products && Array.isArray(rma.products) && rma.products.some((product) => product.status === "delivered"),
+      )
 
-        setRmas(rmasWithDeliveredProducts)
+      setRmas(rmasWithDeliveredProducts)
 
-        // Create flattened view of products for display
-        const products = []
-        for (const rma of rmasWithDeliveredProducts) {
-          if (rma.products && Array.isArray(rma.products)) {
-            for (const product of rma.products) {
-              if (product.status === "delivered") {
-                products.push({
-                  ...product,
-                  rmaId: rma.id,
-                  contactName: rma.contactName,
-                  contactEmail: rma.contactEmail,
-                  contactPhone: rma.contactPhone,
-                  createdAt: rma.createdAt,
-                  // Use product-specific deliveredAt if available, otherwise use RMA deliveredAt
-                  deliveredAt: product.deliveredAt || rma.deliveredAt,
-                })
-              }
+      // Create flattened view of products for display
+      const products = []
+      for (const rma of rmasWithDeliveredProducts) {
+        if (rma.products && Array.isArray(rma.products)) {
+          for (const product of rma.products) {
+            if (product.status === "delivered") {
+              products.push({
+                ...product,
+                rmaId: rma.id,
+                contactName: rma.contactName,
+                contactEmail: rma.contactEmail,
+                contactPhone: rma.contactPhone,
+                contactCompany: rma.contactCompany,
+                createdAt: rma.createdAt,
+                // Use product-specific deliveredAt if available, otherwise use RMA deliveredAt
+                deliveredAt: product.deliveredAt || rma.deliveredAt,
+              })
             }
           }
         }
-
-        setFlattenedProducts(products)
-        setFilteredRmas(rmasWithDeliveredProducts)
-      } catch (error) {
-        console.error("Error fetching RMAs:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load RMAs. Please refresh the page.",
-          variant: "destructive",
-        })
       }
-    }
 
+      setFlattenedProducts(products)
+      setFilteredRmas(rmasWithDeliveredProducts)
+    } catch (error) {
+      console.error("Error fetching RMAs:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load RMAs. Please refresh the page.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
     fetchRMAs()
   }, [])
 
+  // Search functionality
   useEffect(() => {
-    if (searchQuery) {
-      const filtered = flattenedProducts.filter(
-        (product) =>
-          product.contactName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          product.contactEmail?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          product.contactPhone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          product.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          product.modelNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          product.serialNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          product.rmaId?.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      const filtered = flattenedProducts.filter((product) => {
+        // Search in customer details
+        const customerMatch =
+          product.contactName?.toLowerCase().includes(query) ||
+          product.contactEmail?.toLowerCase().includes(query) ||
+          product.contactPhone?.toLowerCase().includes(query) ||
+          product.contactCompany?.toLowerCase().includes(query) ||
+          product.rmaId?.toLowerCase().includes(query)
+
+        // Search in product details
+        const productMatch =
+          product.brand?.toLowerCase().includes(query) ||
+          product.modelNumber?.toLowerCase().includes(query) ||
+          product.serialNumber?.toLowerCase().includes(query)
+
+        return customerMatch || productMatch
+      })
 
       // Group filtered products by RMA ID
       const rmaIds = [...new Set(filtered.map((product) => product.rmaId))]
@@ -121,38 +135,19 @@ export function DeliveredRMAs() {
     }
   }, [searchQuery, rmas, flattenedProducts])
 
-  const clearSearch = () => {
-    setSearchQuery("")
-  }
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by customer, product, serial number, or RMA ID..."
-            className="pl-8 pr-10"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+      <div className="flex justify-between items-start gap-4">
+        <div className="flex-1">
+          <RMASearchBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            placeholder="Search by customer name, phone, email, serial number, model, or RMA ID..."
           />
-          {searchQuery && (
-            <button
-              onClick={clearSearch}
-              className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
-              aria-label="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
         </div>
-        <Button
-          variant="outline"
-          onClick={clearSearch}
-          className={searchQuery ? "opacity-100" : "opacity-0"}
-          tabIndex={searchQuery ? 0 : -1}
-        >
-          Reset
+        <Button variant="outline" size="sm" onClick={fetchRMAs} disabled={isRefreshing}>
+          {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+          Refresh
         </Button>
       </div>
 
@@ -175,7 +170,15 @@ export function DeliveredRMAs() {
                 .filter((product) => filteredRmas.some((rma) => rma.id === product.rmaId))
                 .map((product) => (
                   <TableRow key={`${product.rmaId}-${product.id || product.serialNumber}`}>
-                    <TableCell className="font-medium">{product.contactName}</TableCell>
+                    <TableCell className="font-medium">
+                      <div>
+                        <div className="font-medium">{product.contactName}</div>
+                        <div className="text-sm text-muted-foreground">{product.contactCompany}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {product.contactEmail} • {product.contactPhone}
+                        </div>
+                      </div>
+                    </TableCell>
                     <TableCell>{`${product.brand || "N/A"} ${product.modelNumber || "N/A"}`}</TableCell>
                     <TableCell>{product.serialNumber || "N/A"}</TableCell>
                     <TableCell>
@@ -199,7 +202,7 @@ export function DeliveredRMAs() {
             ) : (
               <TableRow>
                 <TableCell colSpan={7} className="h-24 text-center">
-                  No delivered RMAs found.
+                  {searchQuery ? "No delivered RMAs found matching your search." : "No delivered RMAs found."}
                 </TableCell>
               </TableRow>
             )}

@@ -8,8 +8,9 @@ import { toast } from "@/components/ui/use-toast"
 import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { sendRMADeliveredEmail, sendRMAReadyEmail } from "@/lib/email"
-import { Search, Loader2, RefreshCw, Send } from "lucide-react"
+import { Loader2, RefreshCw, Send } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
+import { RMASearchBar } from "@/components/rma-search-bar"
 import type { Product } from "@/types/Product" // Import Product type
 import type { RMA } from "@/types/RMA" // Import RMA type
 
@@ -107,19 +108,30 @@ export function ReadyToDispatchRMAs() {
     fetchRMAs()
   }, [])
 
+  // Search functionality
   useEffect(() => {
-    if (searchQuery) {
-      const filtered = rmas.filter(
-        (rma) =>
-          rma.contactName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          rma.contactCompany.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          rma.products.some(
-            (product) =>
-              product.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              product.modelNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              product.serialNumber.toLowerCase().includes(searchQuery.toLowerCase()),
-          ),
-      )
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      const filtered = rmas.filter((rma) => {
+        // Search in customer details
+        const customerMatch =
+          rma.contactName?.toLowerCase().includes(query) ||
+          rma.contactEmail?.toLowerCase().includes(query) ||
+          rma.contactPhone?.toLowerCase().includes(query) ||
+          rma.contactCompany?.toLowerCase().includes(query) ||
+          rma.id?.toLowerCase().includes(query)
+
+        // Search in products
+        const productMatch = rma.products.some(
+          (product) =>
+            product.brand?.toLowerCase().includes(query) ||
+            product.modelNumber?.toLowerCase().includes(query) ||
+            product.serialNumber?.toLowerCase().includes(query) ||
+            product.problemsReported?.toLowerCase().includes(query),
+        )
+
+        return customerMatch || productMatch
+      })
       setFilteredRmas(filtered)
     } else {
       setFilteredRmas(rmas)
@@ -403,24 +415,24 @@ export function ReadyToDispatchRMAs() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search RMAs..."
-            className="pl-8"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+      <div className="flex justify-between items-start gap-4">
+        <div className="flex-1">
+          <RMASearchBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            placeholder="Search by customer name, phone, email, serial number, model, or RMA ID..."
           />
         </div>
-        <Button variant="outline" size="sm" onClick={fetchRMAs} disabled={isRefreshing} className="ml-2">
+        <Button variant="outline" size="sm" onClick={fetchRMAs} disabled={isRefreshing}>
           {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
           Refresh
         </Button>
       </div>
 
       {filteredRmas.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">No RMAs ready to dispatch.</div>
+        <div className="text-center py-8 text-muted-foreground">
+          {searchQuery ? "No RMAs found matching your search." : "No RMAs ready to dispatch."}
+        </div>
       ) : (
         <div className="space-y-4">
           {filteredRmas.map((rma) => (
@@ -430,6 +442,9 @@ export function ReadyToDispatchRMAs() {
                   <div>
                     <h3 className="font-medium">{rma.contactName || "N/A"}</h3>
                     <p className="text-sm text-muted-foreground">{rma.contactCompany}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {rma.contactEmail} • {rma.contactPhone}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
