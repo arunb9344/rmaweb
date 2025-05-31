@@ -9,9 +9,8 @@ import { toast } from "@/components/ui/use-toast"
 import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { sendRMAReadyEmail } from "@/lib/email"
-import { Search, Loader2, RefreshCw, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, Loader2, RefreshCw } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 
 interface Product {
   id: string
@@ -49,7 +48,6 @@ export function InServiceCentreRMAs() {
   const [remarks, setRemarks] = useState<Record<string, string>>({})
   const [loadingRmas, setLoadingRmas] = useState<Record<string, boolean>>({})
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [expandedRmas, setExpandedRmas] = useState<Record<string, boolean>>({})
   const [selectedProducts, setSelectedProducts] = useState<Record<string, Record<string, boolean>>>({})
 
   const fetchRMAs = async () => {
@@ -131,13 +129,6 @@ export function InServiceCentreRMAs() {
       setFilteredRmas(rmas)
     }
   }, [searchQuery, rmas])
-
-  const toggleRmaExpanded = (rmaId: string) => {
-    setExpandedRmas((prev) => ({
-      ...prev,
-      [rmaId]: !prev[rmaId],
-    }))
-  }
 
   const toggleProductSelection = (rmaId: string, productId: string) => {
     setSelectedProducts((prev) => ({
@@ -403,12 +394,7 @@ export function InServiceCentreRMAs() {
       ) : (
         <div className="space-y-4">
           {filteredRmas.map((rma) => (
-            <Collapsible
-              key={rma.id}
-              open={expandedRmas[rma.id]}
-              onOpenChange={() => toggleRmaExpanded(rma.id)}
-              className="border rounded-md overflow-hidden"
-            >
+            <div key={rma.id} className="border rounded-md overflow-hidden">
               <div className="bg-muted/30 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div>
@@ -420,16 +406,10 @@ export function InServiceCentreRMAs() {
                   <span className="text-sm text-muted-foreground">
                     {rma.createdAt?.toDate ? new Date(rma.createdAt.toDate()).toLocaleDateString() : "N/A"}
                   </span>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      {expandedRmas[rma.id] ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      <span className="sr-only">Toggle</span>
-                    </Button>
-                  </CollapsibleTrigger>
                 </div>
               </div>
 
-              <CollapsibleContent>
+              <div>
                 <div className="p-4 border-t">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
@@ -525,8 +505,8 @@ export function InServiceCentreRMAs() {
                     </table>
                   </div>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+              </div>
+            </div>
           ))}
         </div>
       )}

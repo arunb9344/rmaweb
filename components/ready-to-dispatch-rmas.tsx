@@ -8,9 +8,8 @@ import { toast } from "@/components/ui/use-toast"
 import { collection, getDocs, doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { sendRMADeliveredEmail, sendRMAReadyEmail } from "@/lib/email"
-import { Search, Loader2, RefreshCw, Send, ChevronDown, ChevronUp } from "lucide-react"
+import { Search, Loader2, RefreshCw, Send } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import type { Product } from "@/types/Product" // Import Product type
 import type { RMA } from "@/types/RMA" // Import RMA type
 
@@ -24,7 +23,6 @@ export function ReadyToDispatchRMAs() {
   const [resendingOtp, setResendingOtp] = useState<Record<string, boolean>>({})
   const [requireOtp, setRequireOtp] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [expandedRmas, setExpandedRmas] = useState<Record<string, boolean>>({})
   const [selectedProducts, setSelectedProducts] = useState<Record<string, Record<string, boolean>>>({})
 
   const fetchRMAs = async () => {
@@ -127,13 +125,6 @@ export function ReadyToDispatchRMAs() {
       setFilteredRmas(rmas)
     }
   }, [searchQuery, rmas])
-
-  const toggleRmaExpanded = (rmaId: string) => {
-    setExpandedRmas((prev) => ({
-      ...prev,
-      [rmaId]: !prev[rmaId],
-    }))
-  }
 
   const toggleProductSelection = (rmaId: string, productId: string) => {
     setSelectedProducts((prev) => ({
@@ -433,12 +424,7 @@ export function ReadyToDispatchRMAs() {
       ) : (
         <div className="space-y-4">
           {filteredRmas.map((rma) => (
-            <Collapsible
-              key={rma.id}
-              open={expandedRmas[rma.id]}
-              onOpenChange={() => toggleRmaExpanded(rma.id)}
-              className="border rounded-md overflow-hidden"
-            >
+            <div key={rma.id} className="border rounded-md overflow-hidden">
               <div className="bg-muted/30 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div>
@@ -450,16 +436,10 @@ export function ReadyToDispatchRMAs() {
                   <span className="text-sm text-muted-foreground">
                     {rma.createdAt?.toDate ? new Date(rma.createdAt.toDate()).toLocaleDateString() : "N/A"}
                   </span>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      {expandedRmas[rma.id] ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      <span className="sr-only">Toggle</span>
-                    </Button>
-                  </CollapsibleTrigger>
                 </div>
               </div>
 
-              <CollapsibleContent>
+              <div>
                 <div className="p-4 border-t">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
@@ -572,8 +552,8 @@ export function ReadyToDispatchRMAs() {
                     </table>
                   </div>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+              </div>
+            </div>
           ))}
         </div>
       )}

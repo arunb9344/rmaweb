@@ -5,10 +5,9 @@ import { collection, getDocs, doc, updateDoc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
-import { Loader2, ArrowRight, RefreshCw, ChevronDown, ChevronUp, Plus } from "lucide-react"
+import { Loader2, ArrowRight, RefreshCw, Plus } from "lucide-react"
 import { RMAActionsMenu } from "@/components/rma-actions-menu"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ServiceCentreDialog } from "@/components/service-centre-dialog"
 
@@ -50,7 +49,6 @@ export function ProcessingRMAs() {
   const [isLoading, setIsLoading] = useState(true)
   const [processingIds, setProcessingIds] = useState<Record<string, Record<string, boolean>>>({})
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [expandedRmas, setExpandedRmas] = useState<Record<string, boolean>>({})
   const [selectedProducts, setSelectedProducts] = useState<Record<string, Record<string, boolean>>>({})
   const [serviceCentres, setServiceCentres] = useState<ServiceCentre[]>([])
   const [selectedServiceCentres, setSelectedServiceCentres] = useState<Record<string, Record<string, string>>>({})
@@ -147,13 +145,6 @@ export function ProcessingRMAs() {
 
     initialize()
   }, [])
-
-  const toggleRmaExpanded = (rmaId: string) => {
-    setExpandedRmas((prev) => ({
-      ...prev,
-      [rmaId]: !prev[rmaId],
-    }))
-  }
 
   const toggleProductSelection = (rmaId: string, productId: string) => {
     setSelectedProducts((prev) => ({
@@ -448,12 +439,7 @@ export function ProcessingRMAs() {
       ) : (
         <div className="space-y-4">
           {rmas.map((rma) => (
-            <Collapsible
-              key={rma.id}
-              open={expandedRmas[rma.id]}
-              onOpenChange={() => toggleRmaExpanded(rma.id)}
-              className="border rounded-md overflow-hidden"
-            >
+            <div key={rma.id} className="border rounded-md overflow-hidden">
               <div className="bg-muted/30 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div>
@@ -465,16 +451,10 @@ export function ProcessingRMAs() {
                   <span className="text-sm text-muted-foreground">
                     {rma.createdAt?.toDate ? new Date(rma.createdAt.toDate()).toLocaleDateString() : "N/A"}
                   </span>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      {expandedRmas[rma.id] ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      <span className="sr-only">Toggle</span>
-                    </Button>
-                  </CollapsibleTrigger>
                 </div>
               </div>
 
-              <CollapsibleContent>
+              <div>
                 <div className="p-4 border-t">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
@@ -595,8 +575,8 @@ export function ProcessingRMAs() {
                     <RMAActionsMenu rmaId={rma.id} status="processing" />
                   </div>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+              </div>
+            </div>
           ))}
         </div>
       )}
